@@ -1,0 +1,2438 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Generic Text Renderer Template</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Offline single-file template for a text editor with rendered-image preview.">
+  <meta name="theme-color" content="#1b1d22">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Generic Text Renderer Template">
+  <meta property="og:description" content="Offline single-file template for a text editor with rendered-image preview.">
+  <meta property="og:url" content="https://example.com/generic-render-template.html">
+  <meta name="twitter:card" content="summary">
+
+  <!--
+    Embedded favicon so the template remains a single offline HTML file.
+    An adapted app should replace this with a project-specific favicon.
+  -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231e293b'/%3E%3Cpath d='M16 17h32v30H16z' fill='none' stroke='%23f8fafc' stroke-width='4'/%3E%3Cpath d='M22 25h20M22 32h14M22 39h17' stroke='%23f8fafc' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+
+  <style>
+    /*
+      ============================================================================
+      GENERIC UI STYLES — NORMALLY DO NOT MODIFY FOR A NEW RENDERER
+
+      These styles intentionally track the SVG, Mermaid, and Graphviz utilities:
+      compact controls, editor on the left, checkerboard preview on the right,
+      browser-controlled light/dark appearance, and a stacked mobile layout.
+      ============================================================================
+    */
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#f5f7fb, #15171b);
+      --panel: light-dark(#ffffff, #1f232b);
+      --panel-2: light-dark(#f0f3f9, #252a33);
+      --border: light-dark(#d9deea, #3a414e);
+      --text: light-dark(#12151c, #f1f5f9);
+      --muted: light-dark(#596170, #b7c0cf);
+      --accent: light-dark(#2856d8, #84a8ff);
+      --danger: light-dark(#b42318, #ff8f8f);
+      --checker-a: light-dark(#eef1f6, #2b3039);
+      --checker-b: light-dark(#dde3ec, #232831);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body { min-height: 100dvh; }
+    button, select, input, textarea { font: inherit; color: inherit; }
+    button, select, input {
+      min-height: 2.18rem;
+      padding: 0.38rem 0.64rem;
+      border: 1px solid var(--border);
+      border-radius: 0.68rem;
+      background: var(--panel);
+    }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button:focus-visible, select:focus-visible, input:focus-visible,
+    textarea:focus-visible, #previewViewport:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .app-shell {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      padding: 0.7rem;
+    }
+
+    .topbar { display: flex; flex-direction: column; gap: 0.5rem; }
+    .topbar-row, .topbar-left, .topbar-right, .renderer-slot {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .topbar-right { margin-left: auto; }
+    h1 { margin: 0; font-size: 1.1rem; line-height: 1.2; }
+
+    #nameInput { width: 9rem; max-width: 36vw; }
+    #exampleSelect { min-width: 8.5rem; }
+    #languageSelect { min-width: 6rem; }
+    #zoomInput { width: 4.2rem; text-align: center; font-variant-numeric: tabular-nums; }
+    .icon-button { min-width: 2.18rem; padding-inline: 0.5rem; }
+    .download-button { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+    .workspace {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(18rem, 1.05fr) minmax(18rem, 1fr);
+      gap: 0.65rem;
+    }
+    .column { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+    .editor-surface {
+      flex: 1 1 auto;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      border-radius: 0.75rem;
+      background: var(--panel-2);
+    }
+    #lineNumbers {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3.45rem;
+      margin: 0;
+      padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+      overflow: hidden;
+      border-inline-end: 1px solid var(--border);
+      color: var(--muted);
+      text-align: right;
+      white-space: pre;
+      user-select: none;
+      pointer-events: none;
+      font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #sourceInput {
+      display: block;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0.75rem 0.85rem 0.75rem 4.15rem;
+      resize: none;
+      overflow: auto;
+      border: 0;
+      background: transparent;
+      white-space: pre;
+      tab-size: 2;
+      font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    /* Checkerboard is framework-owned; renderers should not replace it. */
+    #previewViewport {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      border-radius: 0.75rem;
+      background-color: var(--checker-a);
+      background-image:
+        linear-gradient(45deg, var(--checker-b) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--checker-b) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--checker-b) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--checker-b) 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+      touch-action: none;
+    }
+    #previewFrame {
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: 0;
+      height: 0;
+      border: 0;
+      background: transparent;
+      transform-origin: 0 0;
+      pointer-events: none;
+    }
+    #gestureLayer { position: absolute; inset: 0; z-index: 2; cursor: grab; }
+
+    .status-row { min-height: 1.35rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .status-line { min-height: 1.35rem; color: var(--muted); font-size: 0.84rem; }
+    .status-line.error { color: var(--danger); font-weight: 600; }
+    .export-scale-wrap { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .export-scale-wrap[hidden] { display: none; }
+    .export-scale-input {
+      width: 3.35rem;
+      min-height: 1.35rem;
+      height: 1.35rem;
+      padding: 0.08rem 0.28rem;
+      font-size: 0.84rem;
+      line-height: 1.2;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    #errorDetail {
+      margin: 0;
+      padding: 0.65rem 0.75rem;
+      overflow: auto;
+      border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border) 70%);
+      border-radius: 0.7rem;
+      color: var(--danger);
+      white-space: pre-wrap;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    dialog {
+      width: min(42rem, calc(100vw - 2rem));
+      padding: 0;
+      border: 0;
+      border-radius: 1rem;
+      background: var(--panel);
+      color: inherit;
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+    .about-content { display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; }
+    .about-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+    .about-header h2, .about-content p { margin: 0; }
+    .about-content a { color: var(--accent); }
+    .toast {
+      position: fixed;
+      inset: auto 1rem 1rem auto;
+      padding: 0.65rem 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 0.8rem;
+      background: var(--panel);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .toast.show { opacity: 1; transform: none; }
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px; height: 1px;
+      margin: -1px; padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 860px) {
+      .workspace { grid-template-columns: 1fr; }
+      .topbar-right { margin-left: 0; }
+      #nameInput { width: 100%; max-width: 100%; }
+    }
+  </style>
+
+  <!--
+  ================================================================================
+  BEGIN EMBEDDED RENDERER LIBRARY
+
+  Paste a third-party renderer's offline browser bundle here if one is required.
+  Keep library code isolated from the framework. For a large library, add comments
+  explaining how an engineer can delete this embedded block and optionally use an
+  external <script src="..."> instead.
+
+  THIS GENERIC TEMPLATE HAS NO THIRD-PARTY RENDERING LIBRARY.
+  END EMBEDDED RENDERER LIBRARY
+  ================================================================================
+  -->
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-row">
+        <div class="topbar-left"><h1 id="appTitle">Generic Text Renderer Template</h1></div>
+        <div class="topbar-right">
+          <button id="shareButton" type="button">Share</button>
+          <button id="aboutButton" type="button">About</button>
+          <select id="languageSelect" aria-label="Language"></select>
+        </div>
+      </div>
+
+      <div class="topbar-row">
+        <div class="topbar-left">
+          <button id="openButton" type="button">Open .txt</button>
+          <button id="tidyButton" type="button">Tidy</button>
+          <input id="nameInput" type="text" placeholder="Name" aria-label="Name" autocomplete="off" spellcheck="false">
+          <select id="exampleSelect" aria-label="Examples"><option value="">Examples</option></select>
+
+          <!-- Renderer-specific controls belong here; the framework never assumes what they are. -->
+          <div id="rendererControls" class="renderer-slot"></div>
+        </div>
+
+        <div class="topbar-right">
+          <button id="zoomOutButton" class="icon-button" type="button" aria-label="Zoom out" disabled>−</button>
+          <input id="zoomInput" type="text" value="100%" inputmode="decimal" aria-label="Zoom percentage" disabled>
+          <button id="zoomInButton" class="icon-button" type="button" aria-label="Zoom in" disabled>+</button>
+          <button id="fitButton" type="button" disabled>Fit</button>
+
+          <button id="downloadSourceButton" class="download-button" type="button">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16"><path d="M8 1v9m0 0 3-3m-3 3L5 7M2 12v2h12v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span id="downloadSourceLabel">TXT</span>
+          </button>
+          <button id="downloadSvgButton" class="download-button" type="button" disabled>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16"><path d="M8 1v9m0 0 3-3m-3 3L5 7M2 12v2h12v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>SVG
+          </button>
+          <button id="downloadPngButton" class="download-button" type="button" disabled>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16"><path d="M8 1v9m0 0 3-3m-3 3L5 7M2 12v2h12v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>PNG
+          </button>
+          <button id="downloadWebpButton" class="download-button" type="button" disabled>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16"><path d="M8 1v9m0 0 3-3m-3 3L5 7M2 12v2h12v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>WebP
+          </button>
+
+          <!-- Optional renderer-specific export buttons belong here. -->
+          <div id="rendererExports" class="renderer-slot"></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="column" aria-label="Source editor">
+        <div class="editor-surface">
+          <pre id="lineNumbers" aria-hidden="true">1</pre>
+          <textarea id="sourceInput" aria-label="Source text" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+        </div>
+        <div class="status-row">
+          <div id="statusLine" class="status-line" role="status" aria-live="polite">Ready.</div>
+          <label id="exportScaleWrap" class="export-scale-wrap status-line" hidden>
+            <span id="exportScaleLabel">Export Scale:</span>
+            <input id="exportScaleInput" class="export-scale-input" type="text" value="100%" inputmode="decimal" aria-label="Export Scale">
+          </label>
+        </div>
+        <pre id="errorDetail" hidden></pre>
+      </section>
+
+      <section class="column" aria-label="Rendered image preview">
+        <div id="previewViewport" tabindex="0" aria-label="Rendered image preview">
+          <!-- sandbox="" means the generated preview receives no script privileges. -->
+          <iframe id="previewFrame" sandbox="" title="Rendered image preview"></iframe>
+          <div id="gestureLayer" aria-hidden="true"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="aboutDialog" aria-labelledby="aboutHeading">
+    <div class="about-content">
+      <div class="about-header">
+        <h2 id="aboutHeading">About</h2>
+        <button id="closeAboutButton" type="button">Close</button>
+      </div>
+      <p id="aboutDescription">Generic single-file template for building a text-to-image renderer app.</p>
+      <p>Generated and human-reviewed by <a href="https://inventwithpython.com" target="_blank" rel="noopener noreferrer">Al Sweigart</a>. This app works offline and you own it forever. No ads. No registration. No subscriptions. No trackers. Just right-click and save the .html page.</p>
+      <p>Nothing is uploaded and all data stays on your computer.</p>
+      <p id="versionText"></p>
+    </div>
+  </dialog>
+
+  <input id="fileInput" type="file" accept=".txt,text/plain" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    "use strict";
+
+    /*
+      ============================================================================
+      APP CONFIGURATION — FIRST PLACE TO EDIT WHEN FORKING THIS TEMPLATE
+
+      The framework should not contain renderer-specific extensions, labels, file
+      types, debounce values, or bitmap assumptions outside this object and the
+      RENDERER adapter below.
+
+      NOTE ABOUT <head> METADATA:
+      applyAppMetadata() updates metadata at runtime. Social crawlers often do not
+      execute JavaScript, so a published fork should ALSO copy APP.name,
+      APP.description, and APP.shareUrl into the static <head> tags above.
+      ============================================================================
+    */
+    const APP = Object.freeze({
+      name: "Generic Text Renderer Template",
+      version: "0.1.0",
+      description: "Offline single-file template for a text editor with rendered-image preview.",
+      shareUrl: "https://example.com/generic-render-template.html",
+      defaultFilename: "rendered-image",
+
+      source: Object.freeze({
+        extension: "txt",              // no leading period
+        downloadLabel: "TXT",          // text shown on the raw-source download button
+        acceptedExtensions: Object.freeze([".txt"]),
+        acceptedMimeTypes: Object.freeze(["text/plain"]),
+        defaultMimeType: "text/plain;charset=utf-8"
+      }),
+
+      render: Object.freeze({
+        debounceMs: 180,
+        renderBlankSource: true         // set false for formats where blank source should not render
+      }),
+
+      bitmap: Object.freeze({
+        basePixelDensity: 2,            // 100% export scale still produces a sharp 2× bitmap
+        defaultExportScalePercent: 100,
+        minExportScalePercent: 1,
+        maxExportScalePercent: 800,
+        maxDimension: 16384
+      }),
+
+      output: Object.freeze({
+        previewBackground: "checkerboard",
+        preserveTransparency: true,
+        exportBackground: "transparent" // set to a CSS color such as "#ffffff" if desired
+      }),
+
+      development: Object.freeze({
+        showTemplateTestImage: true,    // switch to false when starting a real renderer
+        runSelfTests: true              // lightweight console.assert invariant checks
+      })
+    });
+
+    /*
+      ============================================================================
+      TRANSLATIONS
+
+      The dropdown is derived from Object.keys(TRANSLATIONS). Deleting a language
+      entry removes it from the UI automatically. Values missing in a translation
+      fall back to English.
+
+      The {extension} token in the localized Open label is replaced from
+      APP.source.extension, avoiding hard-coded .txt assumptions.
+
+      TO REDUCE FILE SIZE, DELETE ALL THE LANGUAGES YOU DON'T WANT SUPPORTED.
+      ============================================================================
+    */
+    const TRANSLATIONS = {
+  "en": {
+    "title": "Generic Text Renderer Template",
+    "open": "Open {extension}",
+    "tidy": "Tidy",
+    "examples": "Examples",
+    "share": "Share",
+    "about": "About",
+    "language": "Language",
+    "fit": "Fit",
+    "rendered": "Rendered",
+    "copied": "Copied to clipboard.",
+    "close": "Close",
+    "namePlaceholder": "Name",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "zoomPercentage": "Zoom percentage",
+    "exportScale": "Export Scale:",
+    "rendering": "Rendering…",
+    "empty": "Empty source.",
+    "invalid": "Invalid source.",
+    "noRenderer": "No renderer configured.",
+    "exportFailed": "Export failed.",
+    "openFailed": "Could not open file.",
+    "sourceDownload": "Source download"
+  },
+  "zh-CN": {
+    "title": "Generic Text Renderer Template",
+    "open": "打开 {extension}",
+    "tidy": "整理",
+    "examples": "演示",
+    "share": "分享",
+    "about": "关于",
+    "language": "语言",
+    "fit": "适应",
+    "rendered": "已渲染",
+    "copied": "已复制到剪贴板。",
+    "close": "关闭",
+    "namePlaceholder": "名称",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "zoomPercentage": "缩放百分比",
+    "exportScale": "Export Scale:"
+  },
+  "es": {
+    "title": "Generic Text Renderer Template",
+    "open": "Abrir {extension}",
+    "tidy": "Formatear",
+    "examples": "Demos",
+    "share": "Compartir",
+    "about": "Acerca de",
+    "language": "Idioma",
+    "fit": "Ajustar",
+    "rendered": "Renderizado",
+    "copied": "Copiado al portapapeles.",
+    "close": "Cerrar",
+    "namePlaceholder": "Nombre",
+    "zoomOut": "Alejar",
+    "zoomIn": "Acercar",
+    "zoomPercentage": "Porcentaje de zoom",
+    "exportScale": "Export Scale:"
+  },
+  "ar": {
+    "title": "Generic Text Renderer Template",
+    "open": "فتح {extension}",
+    "tidy": "تنسيق",
+    "examples": "أمثلة",
+    "share": "مشاركة",
+    "about": "حول",
+    "language": "اللغة",
+    "fit": "ملاءمة",
+    "rendered": "تم العرض",
+    "copied": "تم النسخ إلى الحافظة.",
+    "close": "إغلاق",
+    "namePlaceholder": "الاسم",
+    "zoomOut": "تصغير",
+    "zoomIn": "تكبير",
+    "zoomPercentage": "نسبة التكبير",
+    "exportScale": "Export Scale:"
+  },
+  "id": {
+    "title": "Generic Text Renderer Template",
+    "open": "Buka {extension}",
+    "tidy": "Rapikan",
+    "examples": "Demo",
+    "share": "Bagikan",
+    "about": "Tentang",
+    "language": "Bahasa",
+    "fit": "Sesuaikan",
+    "rendered": "Selesai dirender",
+    "copied": "Disalin ke papan klip.",
+    "close": "Tutup",
+    "namePlaceholder": "Nama",
+    "zoomOut": "Perkecil",
+    "zoomIn": "Perbesar",
+    "zoomPercentage": "Persentase zoom",
+    "exportScale": "Export Scale:"
+  },
+  "pt": {
+    "title": "Generic Text Renderer Template",
+    "open": "Abrir {extension}",
+    "tidy": "Formatar",
+    "examples": "Demonstrações",
+    "share": "Partilhar",
+    "about": "Acerca de",
+    "language": "Idioma",
+    "fit": "Ajustar",
+    "rendered": "Renderizado",
+    "copied": "Copiado para a área de transferência.",
+    "close": "Fechar",
+    "namePlaceholder": "Nome",
+    "zoomOut": "Reduzir zoom",
+    "zoomIn": "Aumentar zoom",
+    "zoomPercentage": "Percentagem de zoom",
+    "exportScale": "Export Scale:"
+  },
+  "fr": {
+    "title": "Generic Text Renderer Template",
+    "open": "Ouvrir un {extension}",
+    "tidy": "Mettre en forme",
+    "examples": "Démos",
+    "share": "Partager",
+    "about": "À propos",
+    "language": "Langue",
+    "fit": "Ajuster",
+    "rendered": "Rendu terminé",
+    "copied": "Copié dans le presse-papiers.",
+    "close": "Fermer",
+    "namePlaceholder": "Nom",
+    "zoomOut": "Dézoomer",
+    "zoomIn": "Zoomer",
+    "zoomPercentage": "Pourcentage de zoom",
+    "exportScale": "Export Scale:"
+  },
+  "ja": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension}を開く",
+    "tidy": "整形",
+    "examples": "デモ",
+    "share": "共有",
+    "about": "このアプリについて",
+    "language": "言語",
+    "fit": "全体表示",
+    "rendered": "レンダリング完了",
+    "copied": "クリップボードにコピーしました。",
+    "close": "閉じる",
+    "namePlaceholder": "名前",
+    "zoomOut": "縮小",
+    "zoomIn": "拡大",
+    "zoomPercentage": "ズーム率",
+    "exportScale": "Export Scale:"
+  },
+  "ru": {
+    "title": "Generic Text Renderer Template",
+    "open": "Открыть {extension}",
+    "tidy": "Форматировать",
+    "examples": "Демо",
+    "share": "Поделиться",
+    "about": "О программе",
+    "language": "Язык",
+    "fit": "Вписать",
+    "rendered": "Отрисовано",
+    "copied": "Скопировано в буфер обмена.",
+    "close": "Закрыть",
+    "namePlaceholder": "Имя",
+    "zoomOut": "Уменьшить",
+    "zoomIn": "Увеличить",
+    "zoomPercentage": "Масштаб в процентах",
+    "exportScale": "Export Scale:"
+  },
+  "de": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} öffnen",
+    "tidy": "Formatieren",
+    "examples": "Demos",
+    "share": "Teilen",
+    "about": "Info",
+    "language": "Sprache",
+    "fit": "Einpassen",
+    "rendered": "Gerendert",
+    "copied": "In die Zwischenablage kopiert.",
+    "close": "Schließen",
+    "namePlaceholder": "Name",
+    "zoomOut": "Verkleinern",
+    "zoomIn": "Vergrößern",
+    "zoomPercentage": "Zoom in Prozent",
+    "exportScale": "Export Scale:"
+  },
+  "hi": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} खोलें",
+    "tidy": "फ़ॉर्मैट करें",
+    "examples": "डेमो",
+    "share": "साझा करें",
+    "about": "परिचय",
+    "language": "भाषा",
+    "fit": "फ़िट करें",
+    "rendered": "रेंडर किया गया",
+    "copied": "क्लिपबोर्ड पर कॉपी किया गया।",
+    "close": "बंद करें",
+    "namePlaceholder": "नाम",
+    "zoomOut": "ज़ूम आउट",
+    "zoomIn": "ज़ूम इन",
+    "zoomPercentage": "ज़ूम प्रतिशत",
+    "exportScale": "Export Scale:"
+  },
+  "bn": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} খুলুন",
+    "tidy": "ফরম্যাট করুন",
+    "examples": "ডেমো",
+    "share": "শেয়ার করুন",
+    "about": "সম্পর্কে",
+    "language": "ভাষা",
+    "fit": "ফিট করুন",
+    "rendered": "রেন্ডার হয়েছে",
+    "copied": "ক্লিপবোর্ডে কপি করা হয়েছে।",
+    "close": "বন্ধ করুন",
+    "namePlaceholder": "নাম",
+    "zoomOut": "জুম আউট",
+    "zoomIn": "জুম ইন",
+    "zoomPercentage": "জুম শতাংশ",
+    "exportScale": "Export Scale:"
+  },
+  "ur": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} کھولیں",
+    "tidy": "فارمیٹ کریں",
+    "examples": "ڈیموز",
+    "share": "شیئر کریں",
+    "about": "تعارف",
+    "language": "زبان",
+    "fit": "فِٹ کریں",
+    "rendered": "رینڈر ہو گیا",
+    "copied": "کلپ بورڈ پر کاپی ہو گیا۔",
+    "close": "بند کریں",
+    "namePlaceholder": "نام",
+    "zoomOut": "زوم آؤٹ",
+    "zoomIn": "زوم اِن",
+    "zoomPercentage": "زوم فیصد",
+    "exportScale": "Export Scale:"
+  },
+  "ko": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} 열기",
+    "tidy": "정리",
+    "examples": "데모",
+    "share": "공유",
+    "about": "정보",
+    "language": "언어",
+    "fit": "맞춤",
+    "rendered": "렌더링됨",
+    "copied": "클립보드에 복사했습니다.",
+    "close": "닫기",
+    "namePlaceholder": "이름",
+    "zoomOut": "축소",
+    "zoomIn": "확대",
+    "zoomPercentage": "확대/축소 비율",
+    "exportScale": "Export Scale:"
+  },
+  "vi": {
+    "title": "Generic Text Renderer Template",
+    "open": "Mở {extension}",
+    "tidy": "Định dạng",
+    "examples": "Bản mẫu",
+    "share": "Chia sẻ",
+    "about": "Giới thiệu",
+    "language": "Ngôn ngữ",
+    "fit": "Vừa khung",
+    "rendered": "Đã kết xuất",
+    "copied": "Đã sao chép vào bảng tạm.",
+    "close": "Đóng",
+    "namePlaceholder": "Tên",
+    "zoomOut": "Thu nhỏ",
+    "zoomIn": "Phóng to",
+    "zoomPercentage": "Phần trăm thu phóng",
+    "exportScale": "Export Scale:"
+  },
+  "tr": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} Aç",
+    "tidy": "Biçimlendir",
+    "examples": "Demolar",
+    "share": "Paylaş",
+    "about": "Hakkında",
+    "language": "Dil",
+    "fit": "Sığdır",
+    "rendered": "Oluşturuldu",
+    "copied": "Panoya kopyalandı.",
+    "close": "Kapat",
+    "namePlaceholder": "Ad",
+    "zoomOut": "Uzaklaştır",
+    "zoomIn": "Yakınlaştır",
+    "zoomPercentage": "Yakınlaştırma yüzdesi",
+    "exportScale": "Export Scale:"
+  },
+  "it": {
+    "title": "Generic Text Renderer Template",
+    "open": "Apri {extension}",
+    "tidy": "Formatta",
+    "examples": "Demo",
+    "share": "Condividi",
+    "about": "Informazioni",
+    "language": "Lingua",
+    "fit": "Adatta",
+    "rendered": "Renderizzato",
+    "copied": "Copiato negli appunti.",
+    "close": "Chiudi",
+    "namePlaceholder": "Nome",
+    "zoomOut": "Riduci zoom",
+    "zoomIn": "Aumenta zoom",
+    "zoomPercentage": "Percentuale di zoom",
+    "exportScale": "Export Scale:"
+  },
+  "nl": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} openen",
+    "tidy": "Formatteren",
+    "examples": "Demo’s",
+    "share": "Delen",
+    "about": "Over",
+    "language": "Taal",
+    "fit": "Passend maken",
+    "rendered": "Gerenderd",
+    "copied": "Naar het klembord gekopieerd.",
+    "close": "Sluiten",
+    "namePlaceholder": "Naam",
+    "zoomOut": "Uitzoomen",
+    "zoomIn": "Inzoomen",
+    "zoomPercentage": "Zoompercentage",
+    "exportScale": "Export Scale:"
+  },
+  "pl": {
+    "title": "Generic Text Renderer Template",
+    "open": "Otwórz {extension}",
+    "tidy": "Formatuj",
+    "examples": "Dema",
+    "share": "Udostępnij",
+    "about": "O aplikacji",
+    "language": "Język",
+    "fit": "Dopasuj",
+    "rendered": "Wyrenderowano",
+    "copied": "Skopiowano do schowka.",
+    "close": "Zamknij",
+    "namePlaceholder": "Nazwa",
+    "zoomOut": "Pomniejsz",
+    "zoomIn": "Powiększ",
+    "zoomPercentage": "Procent powiększenia",
+    "exportScale": "Export Scale:"
+  },
+  "th": {
+    "title": "Generic Text Renderer Template",
+    "open": "เปิด {extension}",
+    "tidy": "จัดรูปแบบ",
+    "examples": "ตัวอย่าง",
+    "share": "แชร์",
+    "about": "เกี่ยวกับ",
+    "language": "ภาษา",
+    "fit": "พอดี",
+    "rendered": "เรนเดอร์แล้ว",
+    "copied": "คัดลอกไปยังคลิปบอร์ดแล้ว",
+    "close": "ปิด",
+    "namePlaceholder": "ชื่อ",
+    "zoomOut": "ซูมออก",
+    "zoomIn": "ซูมเข้า",
+    "zoomPercentage": "เปอร์เซ็นต์การซูม",
+    "exportScale": "Export Scale:"
+  },
+  "fa": {
+    "title": "Generic Text Renderer Template",
+    "open": "باز کردن {extension}",
+    "tidy": "قالب‌بندی",
+    "examples": "نمونه‌ها",
+    "share": "اشتراک‌گذاری",
+    "about": "درباره",
+    "language": "زبان",
+    "fit": "جا دادن",
+    "rendered": "رندر شد",
+    "copied": "در کلیپ‌بورد کپی شد.",
+    "close": "بستن",
+    "namePlaceholder": "نام",
+    "zoomOut": "کوچک‌نمایی",
+    "zoomIn": "بزرگ‌نمایی",
+    "zoomPercentage": "درصد بزرگ‌نمایی",
+    "exportScale": "Export Scale:"
+  },
+  "uk": {
+    "title": "Generic Text Renderer Template",
+    "open": "Відкрити {extension}",
+    "tidy": "Форматувати",
+    "examples": "Демо",
+    "share": "Поділитися",
+    "about": "Про програму",
+    "language": "Мова",
+    "fit": "Вписати",
+    "rendered": "Відтворено",
+    "copied": "Скопійовано в буфер обміну.",
+    "close": "Закрити",
+    "namePlaceholder": "Назва",
+    "zoomOut": "Зменшити",
+    "zoomIn": "Збільшити",
+    "zoomPercentage": "Масштаб у відсотках",
+    "exportScale": "Export Scale:"
+  },
+  "cs": {
+    "title": "Generic Text Renderer Template",
+    "open": "Otevřít {extension}",
+    "tidy": "Formátovat",
+    "examples": "Ukázky",
+    "share": "Sdílet",
+    "about": "O aplikaci",
+    "language": "Jazyk",
+    "fit": "Přizpůsobit",
+    "rendered": "Vykresleno",
+    "copied": "Zkopírováno do schránky.",
+    "close": "Zavřít",
+    "namePlaceholder": "Název",
+    "zoomOut": "Oddálit",
+    "zoomIn": "Přiblížit",
+    "zoomPercentage": "Procento přiblížení",
+    "exportScale": "Export Scale:"
+  },
+  "ms": {
+    "title": "Generic Text Renderer Template",
+    "open": "Buka {extension}",
+    "tidy": "Format",
+    "examples": "Demo",
+    "share": "Kongsi",
+    "about": "Perihal",
+    "language": "Bahasa",
+    "fit": "Muat",
+    "rendered": "Selesai dirender",
+    "copied": "Disalin ke papan klip.",
+    "close": "Tutup",
+    "namePlaceholder": "Nama",
+    "zoomOut": "Zum keluar",
+    "zoomIn": "Zum masuk",
+    "zoomPercentage": "Peratus zum",
+    "exportScale": "Export Scale:"
+  },
+  "ro": {
+    "title": "Generic Text Renderer Template",
+    "open": "Deschide {extension}",
+    "tidy": "Formatează",
+    "examples": "Demonstrații",
+    "share": "Distribuie",
+    "about": "Despre",
+    "language": "Limbă",
+    "fit": "Potrivește",
+    "rendered": "Redată",
+    "copied": "Copiat în clipboard.",
+    "close": "Închide",
+    "namePlaceholder": "Nume",
+    "zoomOut": "Micșorează",
+    "zoomIn": "Mărește",
+    "zoomPercentage": "Procent de zoom",
+    "exportScale": "Export Scale:"
+  },
+  "el": {
+    "title": "Generic Text Renderer Template",
+    "open": "Άνοιγμα {extension}",
+    "tidy": "Μορφοποίηση",
+    "examples": "Παραδείγματα",
+    "share": "Κοινοποίηση",
+    "about": "Σχετικά",
+    "language": "Γλώσσα",
+    "fit": "Προσαρμογή",
+    "rendered": "Αποδόθηκε",
+    "copied": "Αντιγράφηκε στο πρόχειρο.",
+    "close": "Κλείσιμο",
+    "namePlaceholder": "Όνομα",
+    "zoomOut": "Σμίκρυνση",
+    "zoomIn": "Μεγέθυνση",
+    "zoomPercentage": "Ποσοστό ζουμ",
+    "exportScale": "Export Scale:"
+  },
+  "he": {
+    "title": "Generic Text Renderer Template",
+    "open": "פתיחת {extension}",
+    "tidy": "עיצוב",
+    "examples": "הדגמות",
+    "share": "שיתוף",
+    "about": "אודות",
+    "language": "שפה",
+    "fit": "התאמה",
+    "rendered": "התרשים רונדר",
+    "copied": "הועתק ללוח.",
+    "close": "סגירה",
+    "namePlaceholder": "שם",
+    "zoomOut": "הקטנה",
+    "zoomIn": "הגדלה",
+    "zoomPercentage": "אחוז זום",
+    "exportScale": "Export Scale:"
+  },
+  "sv": {
+    "title": "Generic Text Renderer Template",
+    "open": "Öppna {extension}",
+    "tidy": "Formatera",
+    "examples": "Demon",
+    "share": "Dela",
+    "about": "Om",
+    "language": "Språk",
+    "fit": "Anpassa",
+    "rendered": "Renderat",
+    "copied": "Kopierat till urklipp.",
+    "close": "Stäng",
+    "namePlaceholder": "Namn",
+    "zoomOut": "Zooma ut",
+    "zoomIn": "Zooma in",
+    "zoomPercentage": "Zoomprocent",
+    "exportScale": "Export Scale:"
+  },
+  "fil": {
+    "title": "Generic Text Renderer Template",
+    "open": "Buksan ang {extension}",
+    "tidy": "I-format",
+    "examples": "Mga demo",
+    "share": "Ibahagi",
+    "about": "Tungkol",
+    "language": "Wika",
+    "fit": "I-fit",
+    "rendered": "Na-render",
+    "copied": "Nakopya sa clipboard.",
+    "close": "Isara",
+    "namePlaceholder": "Pangalan",
+    "zoomOut": "Mag-zoom out",
+    "zoomIn": "Mag-zoom in",
+    "zoomPercentage": "Porsiyento ng zoom",
+    "exportScale": "Export Scale:"
+  },
+  "ta": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} திறக்கவும்",
+    "tidy": "வடிவமைக்கவும்",
+    "examples": "மாதிரிகள்",
+    "share": "பகிர்",
+    "about": "பற்றி",
+    "language": "மொழி",
+    "fit": "பொருத்து",
+    "rendered": "ரெண்டர் செய்யப்பட்டது",
+    "copied": "கிளிப்போர்டுக்கு நகலெடுக்கப்பட்டது.",
+    "close": "மூடு",
+    "namePlaceholder": "பெயர்",
+    "zoomOut": "சிறிதாக்கு",
+    "zoomIn": "பெரிதாக்கு",
+    "zoomPercentage": "பெரிதாக்கல் சதவீதம்",
+    "exportScale": "Export Scale:"
+  },
+  "hu": {
+    "title": "Generic Text Renderer Template",
+    "open": "{extension} megnyitása",
+    "tidy": "Formázás",
+    "examples": "Demók",
+    "share": "Megosztás",
+    "about": "Névjegy",
+    "language": "Nyelv",
+    "fit": "Illesztés",
+    "rendered": "Renderelve",
+    "copied": "Vágólapra másolva.",
+    "close": "Bezárás",
+    "namePlaceholder": "Név",
+    "zoomOut": "Kicsinyítés",
+    "zoomIn": "Nagyítás",
+    "zoomPercentage": "Nagyítás százalékban",
+    "exportScale": "Export Scale:"
+  },
+  "da": {
+    "title": "Generic Text Renderer Template",
+    "open": "Åbn {extension}",
+    "tidy": "Formatér",
+    "examples": "Demoer",
+    "share": "Del",
+    "about": "Om",
+    "language": "Sprog",
+    "fit": "Tilpas",
+    "rendered": "Renderet",
+    "copied": "Kopieret til udklipsholderen.",
+    "close": "Luk",
+    "namePlaceholder": "Navn",
+    "zoomOut": "Zoom ud",
+    "zoomIn": "Zoom ind",
+    "zoomPercentage": "Zoomprocent",
+    "exportScale": "Export Scale:"
+  },
+  "fi": {
+    "title": "Generic Text Renderer Template",
+    "open": "Avaa {extension}",
+    "tidy": "Muotoile",
+    "examples": "Demot",
+    "share": "Jaa",
+    "about": "Tietoja",
+    "language": "Kieli",
+    "fit": "Sovita",
+    "rendered": "Renderöity",
+    "copied": "Kopioitu leikepöydälle.",
+    "close": "Sulje",
+    "namePlaceholder": "Nimi",
+    "zoomOut": "Loitonna",
+    "zoomIn": "Lähennä",
+    "zoomPercentage": "Zoomausprosentti",
+    "exportScale": "Export Scale:"
+  },
+  "nb": {
+    "title": "Generic Text Renderer Template",
+    "open": "Åpne {extension}",
+    "tidy": "Formater",
+    "examples": "Demoer",
+    "share": "Del",
+    "about": "Om",
+    "language": "Språk",
+    "fit": "Tilpass",
+    "rendered": "Gjengitt",
+    "copied": "Kopiert til utklippstavlen.",
+    "close": "Lukk",
+    "namePlaceholder": "Navn",
+    "zoomOut": "Zoom ut",
+    "zoomIn": "Zoom inn",
+    "zoomPercentage": "Zoomprosent",
+    "exportScale": "Export Scale:"
+  },
+  "sk": {
+    "title": "Generic Text Renderer Template",
+    "open": "Otvoriť {extension}",
+    "tidy": "Formátovať",
+    "examples": "Ukážky",
+    "share": "Zdieľať",
+    "about": "O aplikácii",
+    "language": "Jazyk",
+    "fit": "Prispôsobiť",
+    "rendered": "Vykreslené",
+    "copied": "Skopírované do schránky.",
+    "close": "Zavrieť",
+    "namePlaceholder": "Názov",
+    "zoomOut": "Oddialiť",
+    "zoomIn": "Priblížiť",
+    "zoomPercentage": "Percento priblíženia",
+    "exportScale": "Export Scale:"
+  },
+  "bg": {
+    "title": "Generic Text Renderer Template",
+    "open": "Отвори {extension}",
+    "tidy": "Форматирай",
+    "examples": "Демонстрации",
+    "share": "Сподели",
+    "about": "Относно",
+    "language": "Език",
+    "fit": "Побери",
+    "rendered": "Визуализирано",
+    "copied": "Копирано в клипборда.",
+    "close": "Затвори",
+    "namePlaceholder": "Име",
+    "zoomOut": "Намали",
+    "zoomIn": "Увеличи",
+    "zoomPercentage": "Процент мащабиране",
+    "exportScale": "Export Scale:"
+  },
+  "sr": {
+    "title": "Generic Text Renderer Template",
+    "open": "Отвори {extension}",
+    "tidy": "Форматирај",
+    "examples": "Демо",
+    "share": "Подели",
+    "about": "О програму",
+    "language": "Језик",
+    "fit": "Уклопи",
+    "rendered": "Приказано",
+    "copied": "Копирано у привремену меморију.",
+    "close": "Затвори",
+    "namePlaceholder": "Назив",
+    "zoomOut": "Умањи",
+    "zoomIn": "Увећај",
+    "zoomPercentage": "Проценат зумирања",
+    "exportScale": "Export Scale:"
+  },
+  "hr": {
+    "title": "Generic Text Renderer Template",
+    "open": "Otvori {extension}",
+    "tidy": "Formatiraj",
+    "examples": "Demo primjeri",
+    "share": "Podijeli",
+    "about": "O aplikaciji",
+    "language": "Jezik",
+    "fit": "Prilagodi",
+    "rendered": "Prikazano",
+    "copied": "Kopirano u međuspremnik.",
+    "close": "Zatvori",
+    "namePlaceholder": "Naziv",
+    "zoomOut": "Umanji",
+    "zoomIn": "Uvećaj",
+    "zoomPercentage": "Postotak zumiranja",
+    "exportScale": "Export Scale:"
+  },
+  "sl": {
+    "title": "Generic Text Renderer Template",
+    "open": "Odpri {extension}",
+    "tidy": "Oblikuj",
+    "examples": "Predstavitve",
+    "share": "Deli",
+    "about": "O aplikaciji",
+    "language": "Jezik",
+    "fit": "Prilagodi",
+    "rendered": "Izrisano",
+    "copied": "Kopirano v odložišče.",
+    "close": "Zapri",
+    "namePlaceholder": "Ime",
+    "zoomOut": "Pomanjšaj",
+    "zoomIn": "Povečaj",
+    "zoomPercentage": "Odstotek povečave",
+    "exportScale": "Export Scale:"
+  },
+  "ca": {
+    "title": "Generic Text Renderer Template",
+    "open": "Obre {extension}",
+    "tidy": "Formata",
+    "examples": "Demos",
+    "share": "Comparteix",
+    "about": "Quant a",
+    "language": "Idioma",
+    "fit": "Ajusta",
+    "rendered": "Renderitzat",
+    "copied": "Copiat al porta-retalls.",
+    "close": "Tanca",
+    "namePlaceholder": "Nom",
+    "zoomOut": "Allunya",
+    "zoomIn": "Apropa",
+    "zoomPercentage": "Percentatge de zoom",
+    "exportScale": "Export Scale:"
+  }
+};
+    // DO NOT DELETE CODE BELOW THIS LINE.
+
+    const LANGUAGE_META = {
+  "en": {
+    "label": "🇺🇸 English",
+    "dir": "ltr"
+  },
+  "zh-CN": {
+    "label": "🇨🇳 简体中文",
+    "dir": "ltr"
+  },
+  "es": {
+    "label": "🇪🇸 Español",
+    "dir": "ltr"
+  },
+  "ar": {
+    "label": "🇸🇦 العربية",
+    "dir": "rtl"
+  },
+  "id": {
+    "label": "🇮🇩 Bahasa Indonesia",
+    "dir": "ltr"
+  },
+  "pt": {
+    "label": "🇵🇹 Português",
+    "dir": "ltr"
+  },
+  "fr": {
+    "label": "🇫🇷 Français",
+    "dir": "ltr"
+  },
+  "ja": {
+    "label": "🇯🇵 日本語",
+    "dir": "ltr"
+  },
+  "ru": {
+    "label": "🇷🇺 Русский",
+    "dir": "ltr"
+  },
+  "de": {
+    "label": "🇩🇪 Deutsch",
+    "dir": "ltr"
+  },
+  "hi": {
+    "label": "🇮🇳 हिन्दी",
+    "dir": "ltr"
+  },
+  "bn": {
+    "label": "🇧🇩 বাংলা",
+    "dir": "ltr"
+  },
+  "ur": {
+    "label": "🇵🇰 اردو",
+    "dir": "rtl"
+  },
+  "ko": {
+    "label": "🇰🇷 한국어",
+    "dir": "ltr"
+  },
+  "vi": {
+    "label": "🇻🇳 Tiếng Việt",
+    "dir": "ltr"
+  },
+  "tr": {
+    "label": "🇹🇷 Türkçe",
+    "dir": "ltr"
+  },
+  "it": {
+    "label": "🇮🇹 Italiano",
+    "dir": "ltr"
+  },
+  "nl": {
+    "label": "🇳🇱 Nederlands",
+    "dir": "ltr"
+  },
+  "pl": {
+    "label": "🇵🇱 Polski",
+    "dir": "ltr"
+  },
+  "th": {
+    "label": "🇹🇭 ไทย",
+    "dir": "ltr"
+  },
+  "fa": {
+    "label": "🇮🇷 فارسی",
+    "dir": "rtl"
+  },
+  "uk": {
+    "label": "🇺🇦 Українська",
+    "dir": "ltr"
+  },
+  "cs": {
+    "label": "🇨🇿 Čeština",
+    "dir": "ltr"
+  },
+  "ms": {
+    "label": "🇲🇾 Bahasa Melayu",
+    "dir": "ltr"
+  },
+  "ro": {
+    "label": "🇷🇴 Română",
+    "dir": "ltr"
+  },
+  "el": {
+    "label": "🇬🇷 Ελληνικά",
+    "dir": "ltr"
+  },
+  "he": {
+    "label": "🇮🇱 עברית",
+    "dir": "rtl"
+  },
+  "sv": {
+    "label": "🇸🇪 Svenska",
+    "dir": "ltr"
+  },
+  "fil": {
+    "label": "🇵🇭 Filipino",
+    "dir": "ltr"
+  },
+  "ta": {
+    "label": "🇮🇳 தமிழ்",
+    "dir": "ltr"
+  },
+  "hu": {
+    "label": "🇭🇺 Magyar",
+    "dir": "ltr"
+  },
+  "da": {
+    "label": "🇩🇰 Dansk",
+    "dir": "ltr"
+  },
+  "fi": {
+    "label": "🇫🇮 Suomi",
+    "dir": "ltr"
+  },
+  "nb": {
+    "label": "🇳🇴 Norsk bokmål",
+    "dir": "ltr"
+  },
+  "sk": {
+    "label": "🇸🇰 Slovenčina",
+    "dir": "ltr"
+  },
+  "bg": {
+    "label": "🇧🇬 Български",
+    "dir": "ltr"
+  },
+  "sr": {
+    "label": "🇷🇸 Српски",
+    "dir": "ltr"
+  },
+  "hr": {
+    "label": "🇭🇷 Hrvatski",
+    "dir": "ltr"
+  },
+  "sl": {
+    "label": "🇸🇮 Slovenščina",
+    "dir": "ltr"
+  },
+  "ca": {
+    "label": "🇪🇸 Català",
+    "dir": "ltr"
+  }
+};
+
+    /*
+      ============================================================================
+      EXAMPLES — SECOND COMMON PLACE TO EDIT
+
+      rendererOptions is intentionally part of every example. A Graphviz fork can
+      use { engine: "neato" }; a chart app might use { theme: "dark" }, etc.
+      The framework guarantees a trailing newline when an example is loaded.
+      ============================================================================
+    */
+    const EXAMPLES = Object.freeze([
+      Object.freeze({
+        id: "example-1",
+        label: "Example 1",
+        source: "Example 1\nThis is example text.\n",
+        rendererOptions: Object.freeze({})
+      }),
+      Object.freeze({
+        id: "example-2",
+        label: "Example 2",
+        source: "Example 2\nThis is another example.\n\nBlank lines are preserved by the generic Tidy implementation.\n",
+        rendererOptions: Object.freeze({})
+      }),
+      Object.freeze({
+        id: "example-3",
+        label: "Example 3",
+        source: "Example 3\nReplace this text with whatever source syntax your renderer expects.\n",
+        rendererOptions: Object.freeze({})
+      })
+    ]);
+
+    /*
+      ============================================================================
+      DEVELOPMENT TEST IMAGE
+
+      This is deliberately renderer-independent. With
+      APP.development.showTemplateTestImage=true the template always displays this
+      SVG regardless of editor contents. That makes pan, zoom, Fit, SVG export,
+      PNG/WebP export, and Export Scale testable before a real renderer exists.
+
+      A real fork should normally set showTemplateTestImage=false and implement
+      RENDERER.render().
+      ============================================================================
+    */
+    const TEMPLATE_TEST_RENDER = Object.freeze({
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400">
+  <rect width="640" height="400" rx="26" fill="#eef4ff" stroke="#315da8" stroke-width="5"/>
+  <circle cx="128" cy="126" r="66" fill="#ffd8a8" stroke="#b35b00" stroke-width="5"/>
+  <rect x="245" y="65" width="290" height="118" rx="20" fill="#d9f6df" stroke="#277a3d" stroke-width="5"/>
+  <path d="M90 296 C190 210 275 365 382 272 S545 225 568 315" fill="none" stroke="#7048c8" stroke-width="12" stroke-linecap="round"/>
+  <text x="390" y="118" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" font-weight="700" fill="#183153">Template Preview</text>
+  <text x="390" y="151" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" fill="#36516f">Pan • Zoom • Fit • Export</text>
+</svg>`,
+      width: 640,
+      height: 400
+    });
+
+    /*
+      ============================================================================
+      RENDERER INTERFACE — PRIMARY APP-SPECIFIC EXTENSION POINT
+
+      A fork should replace this object rather than editing generic UI functions.
+
+      Required/expected hooks:
+        validate(source, options, context)
+          -> { valid: true } OR { valid: false, error: "..." }
+
+        async render(source, options, context)
+          -> { svg: "<svg ...>", width?: number, height?: number }
+          -> null when there intentionally is no render
+
+        tidy(source, options, context)
+          -> formatted source string
+
+      Optional hooks:
+        initialize(context)                  one-time renderer startup
+        installControls(container, context)  renderer-specific controls slot
+        installExports(container, context)   renderer-specific export buttons slot
+        applyExampleOptions(options, context) react to example metadata
+
+      SECURITY RULE:
+      Renderer output MUST pass through acceptRender(), which sanitizes the SVG and
+      puts it in a sandboxed iframe. Renderer code should never inject generated
+      markup into the main document.
+      ============================================================================
+    */
+    const RENDERER = Object.freeze({
+      id: "generic-template-renderer",
+      displayName: "Generic Template Renderer",
+
+      initialize(context) {
+        // Embed or initialize a renderer library here if needed.
+      },
+
+      validate(source, options, context) {
+        // Generic template accepts everything. A real renderer should perform its
+        // inexpensive syntax validation here when possible.
+        return { valid: true };
+      },
+
+      async render(source, options, context) {
+        if (APP.development.showTemplateTestImage) {
+          return TEMPLATE_TEST_RENDER;
+        }
+
+        // Returning null means "there is intentionally no new render". This keeps
+        // any last-good image intact and does not mark the source invalid.
+        return null;
+      },
+
+      tidy(source, options, context) {
+        // Format-agnostic fallback: normalize line endings, remove trailing spaces,
+        // preserve blank lines, and guarantee one final newline.
+        const lines = source.replace(/\r\n?/g, "\n").split("\n")
+          .map(line => line.replace(/[ \t]+$/g, ""));
+
+        while (lines.length > 1 && lines.at(-1) === "" && lines.at(-2) === "") {
+          lines.pop();
+        }
+
+        return `${lines.join("\n").replace(/\n*$/, "")}\n`;
+      },
+
+      installControls(container, context) {
+        // Example: Graphviz can append a Layout <select> here. Keep renderer-only
+        // controls out of the generic header markup.
+      },
+
+      installExports(container, context) {
+        // Example: a music app could append MIDI/PDF buttons here. The common
+        // SOURCE/SVG/PNG/WebP buttons remain framework-owned.
+      },
+
+      applyExampleOptions(options, context) {
+        context.setRendererOptions(options || {}, { render: false });
+      }
+    });
+
+    /*
+      ============================================================================
+      GENERIC FRAMEWORK STATE — NORMALLY DO NOT MODIFY
+
+      renderStatus has exactly three durable states:
+        "never-rendered"  no successful render has ever happened
+        "valid"           the latest completed render succeeded
+        "invalid"         the latest source failed, while lastGoodRender may remain
+
+      isRendering is separate so asynchronous work does not require a fourth state.
+      lastGoodRender is NEVER cleared merely because a later edit is blank/invalid.
+      ============================================================================
+    */
+    const state = {
+      renderStatus: "never-rendered",
+      isRendering: false,
+      lastError: "",
+      lastGoodRender: null,
+      rendererOptions: {},
+      renderGeneration: 0,
+      renderTimer: 0,
+      scale: 1,
+      panX: 0,
+      panY: 0
+    };
+
+    const $ = selector => document.querySelector(selector);
+    const elements = {
+      appTitle: $("#appTitle"),
+      shareButton: $("#shareButton"),
+      aboutButton: $("#aboutButton"),
+      languageSelect: $("#languageSelect"),
+      openButton: $("#openButton"),
+      tidyButton: $("#tidyButton"),
+      nameInput: $("#nameInput"),
+      exampleSelect: $("#exampleSelect"),
+      rendererControls: $("#rendererControls"),
+      rendererExports: $("#rendererExports"),
+      zoomOutButton: $("#zoomOutButton"),
+      zoomInput: $("#zoomInput"),
+      zoomInButton: $("#zoomInButton"),
+      fitButton: $("#fitButton"),
+      downloadSourceButton: $("#downloadSourceButton"),
+      downloadSourceLabel: $("#downloadSourceLabel"),
+      downloadSvgButton: $("#downloadSvgButton"),
+      downloadPngButton: $("#downloadPngButton"),
+      downloadWebpButton: $("#downloadWebpButton"),
+      sourceInput: $("#sourceInput"),
+      lineNumbers: $("#lineNumbers"),
+      statusLine: $("#statusLine"),
+      exportScaleWrap: $("#exportScaleWrap"),
+      exportScaleLabel: $("#exportScaleLabel"),
+      exportScaleInput: $("#exportScaleInput"),
+      errorDetail: $("#errorDetail"),
+      previewViewport: $("#previewViewport"),
+      previewFrame: $("#previewFrame"),
+      gestureLayer: $("#gestureLayer"),
+      aboutDialog: $("#aboutDialog"),
+      closeAboutButton: $("#closeAboutButton"),
+      aboutDescription: $("#aboutDescription"),
+      versionText: $("#versionText"),
+      fileInput: $("#fileInput"),
+      toast: $("#toast")
+    };
+
+    let currentLanguage = "en";
+
+    /* -------------------------------------------------------------------------
+       PUBLIC CONTEXT PASSED TO RENDERER HOOKS
+
+       Keep the renderer adapter dependent on this narrow API instead of arbitrary
+       framework internals. This makes AI-assisted forks easier to audit.
+       ------------------------------------------------------------------------- */
+    const rendererContext = Object.freeze({
+      app: APP,
+      getSource: () => elements.sourceInput.value,
+      getRendererOptions: () => ({ ...state.rendererOptions }),
+      setRendererOptions,
+      requestRender: () => scheduleRender(0),
+      setStatusText,
+      showError,
+      hideError,
+      acceptRender,
+      rejectRender,
+      clearRender,
+      sanitizeSvg: sanitizeRenderedSvg,
+      downloadBlob: triggerDownload,
+      getFilename: filenameForExtension
+    });
+
+    function setRendererOptions(nextOptions, { render = true } = {}) {
+      state.rendererOptions = { ...state.rendererOptions, ...nextOptions };
+      if (render) scheduleRender(0);
+    }
+
+    function formatMessage(template, values = {}) {
+      return String(template).replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) =>
+        Object.prototype.hasOwnProperty.call(values, key) ? values[key] : `{${key}}`
+      );
+    }
+
+    function t(key) {
+      return TRANSLATIONS[currentLanguage]?.[key]
+        ?? TRANSLATIONS.en[key]
+        ?? key;
+    }
+
+    function localizedOpenLabel() {
+      return formatMessage(t("open"), { extension: `.${APP.source.extension}` });
+    }
+
+    function applyAppMetadata() {
+      document.title = APP.name;
+      elements.appTitle.textContent = APP.name;
+      elements.aboutDescription.textContent = APP.description;
+      elements.versionText.textContent = `v${APP.version}`;
+      elements.downloadSourceLabel.textContent = APP.source.downloadLabel;
+
+      const accept = [...APP.source.acceptedExtensions, ...APP.source.acceptedMimeTypes].join(",");
+      elements.fileInput.accept = accept;
+
+      const description = document.querySelector('meta[name="description"]');
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      const ogDescription = document.querySelector('meta[property="og:description"]');
+      const ogUrl = document.querySelector('meta[property="og:url"]');
+      if (description) description.content = APP.description;
+      if (ogTitle) ogTitle.content = APP.name;
+      if (ogDescription) ogDescription.content = APP.description;
+      if (ogUrl) ogUrl.content = APP.shareUrl;
+    }
+
+    /* -------------------------------------------------------------------------
+       INTERNATIONALIZATION
+       ------------------------------------------------------------------------- */
+    const LOCALE_ALIASES = {
+      zh: "zh-CN", "zh-Hans": "zh-CN", "zh-SG": "zh-CN",
+      iw: "he", in: "id", no: "nb"
+    };
+
+    function chooseLanguage() {
+      for (const candidate of (navigator.languages || [navigator.language])) {
+        if (!candidate) continue;
+        const exact = LOCALE_ALIASES[candidate] || candidate;
+        if (TRANSLATIONS[exact]) return exact;
+
+        const lower = String(candidate).toLowerCase();
+        for (const code of Object.keys(TRANSLATIONS)) {
+          if (code.toLowerCase() === lower) return code;
+        }
+
+        const base = LOCALE_ALIASES[lower.split("-")[0]] || lower.split("-")[0];
+        if (TRANSLATIONS[base]) return base;
+      }
+      return "en";
+    }
+
+    function populateLanguages() {
+      elements.languageSelect.textContent = "";
+      for (const code of Object.keys(TRANSLATIONS)) {
+        const option = document.createElement("option");
+        option.value = code;
+        option.textContent = LANGUAGE_META[code]?.label || code;
+        elements.languageSelect.append(option);
+      }
+      currentLanguage = chooseLanguage();
+      elements.languageSelect.value = currentLanguage;
+      applyTranslations();
+    }
+
+    function applyTranslations() {
+      document.documentElement.lang = currentLanguage;
+      document.documentElement.dir = LANGUAGE_META[currentLanguage]?.dir || "ltr";
+
+      // APP.name is intentionally a product name and is not translated here.
+      elements.appTitle.textContent = APP.name;
+      elements.openButton.textContent = localizedOpenLabel();
+      elements.tidyButton.textContent = t("tidy");
+      elements.exampleSelect.options[0].textContent = t("examples");
+      elements.shareButton.textContent = t("share");
+      elements.aboutButton.textContent = t("about");
+      elements.fitButton.textContent = t("fit");
+      elements.closeAboutButton.textContent = t("close");
+      $("#aboutHeading").textContent = t("about");
+      elements.exportScaleLabel.textContent = t("exportScale");
+      elements.nameInput.placeholder = t("namePlaceholder");
+      elements.languageSelect.setAttribute("aria-label", t("language"));
+      elements.zoomOutButton.setAttribute("aria-label", t("zoomOut"));
+      elements.zoomInButton.setAttribute("aria-label", t("zoomIn"));
+      elements.zoomInput.setAttribute("aria-label", t("zoomPercentage"));
+      refreshStatusText();
+    }
+
+    /* -------------------------------------------------------------------------
+       STATUS / STATE TRANSITIONS
+       ------------------------------------------------------------------------- */
+    function setStatusText(message, detail = "", isError = false) {
+      elements.statusLine.textContent = detail ? `${message} ${detail}` : message;
+      elements.statusLine.classList.toggle("error", isError);
+    }
+
+    function showError(message) {
+      elements.errorDetail.textContent = message;
+      elements.errorDetail.hidden = false;
+    }
+
+    function hideError() {
+      elements.errorDetail.textContent = "";
+      elements.errorDetail.hidden = true;
+    }
+
+    function refreshStatusText() {
+      if (state.isRendering) {
+        setStatusText(t("rendering"));
+        return;
+      }
+
+      if (state.renderStatus === "valid" && state.lastGoodRender) {
+        setStatusText(
+          t("rendered"),
+          `${Math.round(state.lastGoodRender.width)} × ${Math.round(state.lastGoodRender.height)} px`
+        );
+        return;
+      }
+
+      if (state.renderStatus === "invalid") {
+        setStatusText(t("invalid"), "", true);
+        return;
+      }
+
+      setStatusText(t("ready"));
+    }
+
+    function updateRenderedControlAvailability() {
+      const hasLastGood = Boolean(state.lastGoodRender);
+
+      // The raw source button is never coupled to render validity.
+      elements.downloadSourceButton.disabled = false;
+
+      for (const control of [
+        elements.downloadSvgButton,
+        elements.downloadPngButton,
+        elements.downloadWebpButton,
+        elements.zoomOutButton,
+        elements.zoomInput,
+        elements.zoomInButton,
+        elements.fitButton
+      ]) {
+        control.disabled = !hasLastGood;
+      }
+
+      elements.exportScaleWrap.hidden = !hasLastGood;
+    }
+
+    /*
+      Success path used by every renderer. It sanitizes first, then atomically
+      replaces lastGoodRender. An exception here leaves the previous render intact.
+    */
+    function acceptRender(result) {
+      if (!result || typeof result.svg !== "string") {
+        throw new Error("Renderer success result must contain an SVG string.");
+      }
+
+      const sanitizedSvg = sanitizeRenderedSvg(result.svg);
+      const intrinsic = getSvgIntrinsicSize(sanitizedSvg, result.width, result.height);
+
+      state.lastGoodRender = Object.freeze({
+        svg: sanitizedSvg,
+        width: intrinsic.width,
+        height: intrinsic.height,
+        background: result.background ?? APP.output.exportBackground
+      });
+      state.renderStatus = "valid";
+      state.isRendering = false;
+      state.lastError = "";
+
+      renderLastGoodIntoPreview();
+      hideError();
+      updateRenderedControlAvailability();
+      refreshStatusText();
+      requestAnimationFrame(fitView);
+    }
+
+    /*
+      Failure path deliberately does NOT clear lastGoodRender. This is the formal
+      "invalid with last good render" behavior used by the three real apps.
+    */
+    function rejectRender(error) {
+      state.renderStatus = "invalid";
+      state.isRendering = false;
+      state.lastError = error?.message || String(error || t("invalid"));
+      showError(state.lastError);
+      updateRenderedControlAvailability();
+      refreshStatusText();
+    }
+
+    /*
+      clearRender() is reserved for deliberate reset/startup actions. Ordinary
+      blank or invalid edits must not call it, because they should preserve the
+      previous successful image.
+    */
+    function clearRender() {
+      state.renderStatus = "never-rendered";
+      state.isRendering = false;
+      state.lastError = "";
+      state.lastGoodRender = null;
+      state.scale = 1;
+      state.panX = 0;
+      state.panY = 0;
+
+      elements.previewFrame.srcdoc =
+        '<!doctype html><html><head><style>html,body{margin:0;padding:0;background:transparent}</style></head><body></body></html>';
+      elements.previewFrame.style.width = "0px";
+      elements.previewFrame.style.height = "0px";
+      elements.previewFrame.style.transform = "none";
+      elements.zoomInput.value = "100%";
+
+      hideError();
+      updateRenderedControlAvailability();
+      refreshStatusText();
+    }
+
+    /* -------------------------------------------------------------------------
+       SHARED SVG SECURITY BOUNDARY
+       ------------------------------------------------------------------------- */
+    function parseSvgDocument(svgText) {
+      const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+      if (doc.querySelector("parsererror")) {
+        throw new Error("Renderer produced invalid SVG markup.");
+      }
+      if (!doc.documentElement || doc.documentElement.localName.toLowerCase() !== "svg") {
+        throw new Error("Renderer output is not an SVG document.");
+      }
+      return doc;
+    }
+
+    function sanitizeRenderedSvg(svgText) {
+      const doc = parseSvgDocument(svgText);
+      const root = doc.documentElement;
+
+      root.querySelectorAll(
+        "script, foreignObject, iframe, object, embed, audio, video"
+      ).forEach(node => node.remove());
+
+      for (const element of root.querySelectorAll("*")) {
+        for (const attribute of [...element.attributes]) {
+          const name = attribute.name.toLowerCase();
+          const value = attribute.value.trim();
+
+          if (name.startsWith("on")) {
+            element.removeAttribute(attribute.name);
+            continue;
+          }
+
+          // External references are rejected by default. Internal #fragment URLs
+          // are kept because many SVG renderers use them for markers/gradients.
+          if ((name === "href" || name === "xlink:href") && value && !value.startsWith("#")) {
+            element.removeAttribute(attribute.name);
+          }
+        }
+      }
+
+      // Links are unnecessary in a static image preview. Unwrap their children so
+      // the visual output remains while navigation behavior disappears.
+      root.querySelectorAll("a").forEach(anchor => {
+        const group = doc.createElementNS("http://www.w3.org/2000/svg", "g");
+        while (anchor.firstChild) group.append(anchor.firstChild);
+        for (const attribute of [...anchor.attributes]) {
+          if (!/^(?:href|xlink:href)$/i.test(attribute.name)) {
+            group.setAttribute(attribute.name, attribute.value);
+          }
+        }
+        anchor.replaceWith(group);
+      });
+
+      return new XMLSerializer().serializeToString(root);
+    }
+
+    function getSvgIntrinsicSize(svgText, suppliedWidth, suppliedHeight) {
+      const explicitWidth = Number(suppliedWidth);
+      const explicitHeight = Number(suppliedHeight);
+      if (explicitWidth > 0 && explicitHeight > 0) {
+        return { width: explicitWidth, height: explicitHeight };
+      }
+
+      const svg = parseSvgDocument(svgText).documentElement;
+      const viewBox = (svg.getAttribute("viewBox") || "")
+        .trim().split(/[ ,]+/).map(Number);
+
+      if (viewBox.length === 4 && viewBox.every(Number.isFinite)
+          && viewBox[2] > 0 && viewBox[3] > 0) {
+        return { width: viewBox[2], height: viewBox[3] };
+      }
+
+      const numericDimension = value => {
+        const match = String(value || "").match(/^([0-9]*\.?[0-9]+)/);
+        return match ? Number(match[1]) : NaN;
+      };
+
+      const width = numericDimension(svg.getAttribute("width"));
+      const height = numericDimension(svg.getAttribute("height"));
+      return {
+        width: Number.isFinite(width) && width > 0 ? width : 800,
+        height: Number.isFinite(height) && height > 0 ? height : 600
+      };
+    }
+
+    function previewDocument(svgText) {
+      const safeForScriptString = svgText;
+      return `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<style>html,body{margin:0;padding:0;background:transparent;width:100%;height:100%;overflow:hidden}svg{display:block;width:100%;height:100%}</style>
+</head><body>${safeForScriptString}</body></html>`;
+    }
+
+    function renderLastGoodIntoPreview() {
+      if (!state.lastGoodRender) return;
+      elements.previewFrame.style.width = `${state.lastGoodRender.width}px`;
+      elements.previewFrame.style.height = `${state.lastGoodRender.height}px`;
+      elements.previewFrame.srcdoc = previewDocument(state.lastGoodRender.svg);
+    }
+
+    /* -------------------------------------------------------------------------
+       ASYNCHRONOUS RENDER PIPELINE
+       ------------------------------------------------------------------------- */
+    async function renderSource() {
+      const generation = ++state.renderGeneration;
+      const source = elements.sourceInput.value;
+      hideError();
+
+      if (!source.trim() && !APP.render.renderBlankSource) {
+        // Preserve any last-good render. Blank source is not a destructive reset.
+        state.isRendering = false;
+        if (state.renderStatus === "never-rendered") setStatusText(t("empty"));
+        else setStatusText(t("empty"));
+        return;
+      }
+
+      let validation;
+      try {
+        validation = await RENDERER.validate(source, state.rendererOptions, rendererContext);
+      } catch (error) {
+        if (generation !== state.renderGeneration) return;
+        rejectRender(error);
+        return;
+      }
+
+      if (generation !== state.renderGeneration) return;
+      if (validation && validation.valid === false) {
+        rejectRender(new Error(validation.error || t("invalid")));
+        return;
+      }
+
+      state.isRendering = true;
+      refreshStatusText();
+
+      try {
+        const result = await RENDERER.render(source, state.rendererOptions, rendererContext);
+        if (generation !== state.renderGeneration) return;
+
+        if (result == null) {
+          state.isRendering = false;
+          if (state.renderStatus === "never-rendered") {
+            setStatusText(t("noRenderer"));
+          } else {
+            refreshStatusText();
+          }
+          return;
+        }
+
+        acceptRender(result);
+      } catch (error) {
+        if (generation !== state.renderGeneration) return;
+        rejectRender(error);
+      }
+    }
+
+    function scheduleRender(delay = APP.render.debounceMs) {
+      clearTimeout(state.renderTimer);
+      state.renderTimer = setTimeout(renderSource, delay);
+    }
+
+    /* -------------------------------------------------------------------------
+       TIDY — DISPATCHED TO THE RENDERER
+       ------------------------------------------------------------------------- */
+    async function tidySource() {
+      try {
+        const tidied = await RENDERER.tidy(
+          elements.sourceInput.value,
+          state.rendererOptions,
+          rendererContext
+        );
+        elements.sourceInput.value = String(tidied ?? elements.sourceInput.value);
+        updateLineNumbers();
+        scheduleRender(0);
+      } catch (error) {
+        rejectRender(error);
+      }
+    }
+
+    /* -------------------------------------------------------------------------
+       EDITOR / FILE HELPERS
+       ------------------------------------------------------------------------- */
+    function updateLineNumbers() {
+      const count = Math.max(1, elements.sourceInput.value.split("\n").length);
+      let output = "";
+      for (let line = 1; line <= count; line++) {
+        output += line;
+        if (line < count) output += "\n";
+      }
+      elements.lineNumbers.textContent = output;
+    }
+
+    function sanitizeFilename(name) {
+      const cleaned = String(name || "")
+        .replace(/[\\/:*?"<>|]/g, "")
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return cleaned || APP.defaultFilename;
+    }
+
+    function filenameForExtension(extension) {
+      return `${sanitizeFilename(elements.nameInput.value)}.${String(extension).replace(/^\./, "")}`;
+    }
+
+    async function openFile(file) {
+      if (!file) return;
+      try {
+        elements.sourceInput.value = (await file.text()).replace(/\r\n?/g, "\n");
+        updateLineNumbers();
+        if (!elements.nameInput.value.trim()) {
+          elements.nameInput.value = sanitizeFilename(file.name.replace(/\.[^.]+$/, ""));
+        }
+        scheduleRender(0);
+      } catch (error) {
+        setStatusText(t("openFailed"), "", true);
+        showError(error?.message || String(error));
+      }
+    }
+
+    function populateExamples() {
+      for (const example of EXAMPLES) {
+        const option = document.createElement("option");
+        option.value = example.id;
+        option.textContent = example.label;
+        elements.exampleSelect.append(option);
+      }
+    }
+
+    async function loadExample(example) {
+      if (!example) return;
+      const source = example.source.endsWith("\n") ? example.source : `${example.source}\n`;
+      elements.sourceInput.value = source;
+      elements.exampleSelect.value = "";
+
+      if (!elements.nameInput.value.trim()) {
+        elements.nameInput.value = sanitizeFilename(
+          example.label.toLowerCase().replace(/\s+/g, "-")
+        );
+      }
+
+      await RENDERER.applyExampleOptions?.(
+        { ...(example.rendererOptions || {}) },
+        rendererContext
+      );
+
+      updateLineNumbers();
+      scheduleRender(0);
+      elements.sourceInput.focus();
+    }
+
+    /* -------------------------------------------------------------------------
+       PAN / ZOOM / FIT — GENERIC FOR ALL SVG-BACKED RENDERERS
+       ------------------------------------------------------------------------- */
+    function clampZoom(value) {
+      return Math.min(32, Math.max(0.02, value));
+    }
+
+    function applyViewTransform() {
+      elements.previewFrame.style.transform =
+        `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+      elements.zoomInput.value = `${Math.round(state.scale * 100)}%`;
+    }
+
+    function fitView() {
+      if (!state.lastGoodRender) return;
+      const rect = elements.previewViewport.getBoundingClientRect();
+      const padding = Math.min(36, Math.max(14, Math.min(rect.width, rect.height) * 0.05));
+      const availableWidth = Math.max(1, rect.width - padding * 2);
+      const availableHeight = Math.max(1, rect.height - padding * 2);
+
+      state.scale = clampZoom(Math.min(
+        availableWidth / state.lastGoodRender.width,
+        availableHeight / state.lastGoodRender.height
+      ));
+      state.panX = (rect.width - state.lastGoodRender.width * state.scale) / 2;
+      state.panY = (rect.height - state.lastGoodRender.height * state.scale) / 2;
+      applyViewTransform();
+    }
+
+    function zoomAt(nextScale, clientX, clientY) {
+      if (!state.lastGoodRender) return;
+      nextScale = clampZoom(nextScale);
+
+      const rect = elements.previewViewport.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const imageX = (x - state.panX) / state.scale;
+      const imageY = (y - state.panY) / state.scale;
+
+      state.scale = nextScale;
+      state.panX = x - imageX * state.scale;
+      state.panY = y - imageY * state.scale;
+      applyViewTransform();
+    }
+
+    function zoomAtCenter(nextScale) {
+      const rect = elements.previewViewport.getBoundingClientRect();
+      zoomAt(nextScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+
+    function commitZoomInput() {
+      const parsed = Number.parseFloat(elements.zoomInput.value.replace("%", "").trim());
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        applyViewTransform();
+        return;
+      }
+      zoomAtCenter(parsed / 100);
+    }
+
+    /* -------------------------------------------------------------------------
+       EXPORT SCALE / BITMAP DIMENSIONS
+       ------------------------------------------------------------------------- */
+    function exportScaleFactor() {
+      const parsed = Number.parseFloat(elements.exportScaleInput.value.replace("%", "").trim());
+      const fallback = APP.bitmap.defaultExportScalePercent;
+      const percent = Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+      const clamped = Math.min(
+        APP.bitmap.maxExportScalePercent,
+        Math.max(APP.bitmap.minExportScalePercent, percent)
+      );
+      return clamped / 100;
+    }
+
+    function commitExportScale() {
+      elements.exportScaleInput.value = `${Math.round(exportScaleFactor() * 100)}%`;
+    }
+
+    function calculateBitmapDimensions(render, scaleFactor = exportScaleFactor()) {
+      const density = APP.bitmap.basePixelDensity;
+      const requestedWidth = Math.max(1, Math.round(render.width * density * scaleFactor));
+      const requestedHeight = Math.max(1, Math.round(render.height * density * scaleFactor));
+      const largest = Math.max(requestedWidth, requestedHeight);
+      const capRatio = Math.min(1, APP.bitmap.maxDimension / largest);
+      return {
+        width: Math.max(1, Math.round(requestedWidth * capRatio)),
+        height: Math.max(1, Math.round(requestedHeight * capRatio))
+      };
+    }
+
+    /* -------------------------------------------------------------------------
+       EXPORTS — SOURCE IS ALWAYS INDEPENDENT FROM RENDER VALIDITY
+       ------------------------------------------------------------------------- */
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    function downloadSource() {
+      // This must always mirror the editor text exactly, even blank or invalid.
+      triggerDownload(
+        new Blob([elements.sourceInput.value], { type: APP.source.defaultMimeType }),
+        filenameForExtension(APP.source.extension)
+      );
+    }
+
+    function downloadRenderedSvg() {
+      if (!state.lastGoodRender) return;
+      triggerDownload(
+        new Blob([state.lastGoodRender.svg], { type: "image/svg+xml;charset=utf-8" }),
+        filenameForExtension("svg")
+      );
+    }
+
+    async function renderedSvgToRaster(mimeType) {
+      if (!state.lastGoodRender) return null;
+
+      const dimensions = calculateBitmapDimensions(state.lastGoodRender);
+      const sourceUrl = URL.createObjectURL(
+        new Blob([state.lastGoodRender.svg], { type: "image/svg+xml;charset=utf-8" })
+      );
+
+      try {
+        const image = new Image();
+        await new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = () => reject(new Error("Could not rasterize rendered SVG."));
+          image.src = sourceUrl;
+        });
+
+        const canvas = document.createElement("canvas");
+        canvas.width = dimensions.width;
+        canvas.height = dimensions.height;
+        const context = canvas.getContext("2d");
+
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+
+        const background = state.lastGoodRender.background ?? APP.output.exportBackground;
+        if (!APP.output.preserveTransparency || (background && background !== "transparent")) {
+          context.save();
+          context.fillStyle = background === "transparent" ? "#ffffff" : background;
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.restore();
+        } else {
+          context.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType));
+        if (!blob) throw new Error(t("exportFailed"));
+        return blob;
+      } finally {
+        URL.revokeObjectURL(sourceUrl);
+      }
+    }
+
+    async function downloadRenderedRaster(mimeType, extension) {
+      if (!state.lastGoodRender) return;
+      try {
+        const blob = await renderedSvgToRaster(mimeType);
+        triggerDownload(blob, filenameForExtension(extension));
+      } catch (error) {
+        setStatusText(t("exportFailed"), "", true);
+        showError(error?.message || String(error));
+      }
+    }
+
+    /* -------------------------------------------------------------------------
+       SHARE / TOAST
+       ------------------------------------------------------------------------- */
+    async function copyShareText() {
+      const text = `${APP.name} — ${APP.description} ${APP.shareUrl}`;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.append(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      showToast(t("copied"));
+    }
+
+    function showToast(message) {
+      elements.toast.textContent = message;
+      elements.toast.classList.add("show");
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => elements.toast.classList.remove("show"), 1500);
+    }
+
+    /* -------------------------------------------------------------------------
+       EVENT WIRING
+       ------------------------------------------------------------------------- */
+    function installEvents() {
+      elements.sourceInput.addEventListener("input", () => {
+        updateLineNumbers();
+        scheduleRender();
+      });
+
+      elements.sourceInput.addEventListener("scroll", () => {
+        elements.lineNumbers.scrollTop = elements.sourceInput.scrollTop;
+      });
+
+      elements.sourceInput.addEventListener("keydown", event => {
+        if (event.key !== "Tab") return;
+        event.preventDefault();
+        elements.sourceInput.setRangeText(
+          "  ",
+          elements.sourceInput.selectionStart,
+          elements.sourceInput.selectionEnd,
+          "end"
+        );
+        updateLineNumbers();
+        scheduleRender();
+      });
+
+      elements.openButton.addEventListener("click", () => elements.fileInput.click());
+      elements.fileInput.addEventListener("change", event => {
+        openFile(event.target.files?.[0]);
+        event.target.value = "";
+      });
+      elements.tidyButton.addEventListener("click", tidySource);
+      elements.exampleSelect.addEventListener("change", () => {
+        loadExample(EXAMPLES.find(example => example.id === elements.exampleSelect.value));
+      });
+
+      elements.languageSelect.addEventListener("change", () => {
+        currentLanguage = elements.languageSelect.value;
+        applyTranslations();
+      });
+
+      elements.shareButton.addEventListener("click", copyShareText);
+      elements.aboutButton.addEventListener("click", () => elements.aboutDialog.showModal());
+      elements.closeAboutButton.addEventListener("click", () => elements.aboutDialog.close());
+      elements.aboutDialog.addEventListener("click", event => {
+        if (event.target === elements.aboutDialog) elements.aboutDialog.close();
+      });
+
+      elements.downloadSourceButton.addEventListener("click", downloadSource);
+      elements.downloadSvgButton.addEventListener("click", downloadRenderedSvg);
+      elements.downloadPngButton.addEventListener("click", () => downloadRenderedRaster("image/png", "png"));
+      elements.downloadWebpButton.addEventListener("click", () => downloadRenderedRaster("image/webp", "webp"));
+
+      elements.zoomOutButton.addEventListener("click", () => zoomAtCenter(state.scale / 1.25));
+      elements.zoomInButton.addEventListener("click", () => zoomAtCenter(state.scale * 1.25));
+      elements.fitButton.addEventListener("click", fitView);
+      elements.zoomInput.addEventListener("change", commitZoomInput);
+      elements.zoomInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitZoomInput();
+          elements.zoomInput.select();
+        }
+      });
+
+      elements.exportScaleInput.addEventListener("change", commitExportScale);
+      elements.exportScaleInput.addEventListener("blur", commitExportScale);
+      elements.exportScaleInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitExportScale();
+          elements.exportScaleInput.select();
+        }
+      });
+
+      window.addEventListener("dragover", event => event.preventDefault());
+      window.addEventListener("drop", event => {
+        event.preventDefault();
+        openFile(event.dataTransfer?.files?.[0]);
+      });
+
+      elements.gestureLayer.addEventListener("wheel", event => {
+        if (!state.lastGoodRender) return;
+        event.preventDefault();
+        zoomAt(
+          state.scale * Math.exp(-event.deltaY * 0.0015),
+          event.clientX,
+          event.clientY
+        );
+      }, { passive: false });
+
+      let dragging = false;
+      let pointerId = null;
+      let lastX = 0;
+      let lastY = 0;
+
+      elements.gestureLayer.addEventListener("pointerdown", event => {
+        if (!state.lastGoodRender || event.button !== 0) return;
+        dragging = true;
+        pointerId = event.pointerId;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        elements.gestureLayer.setPointerCapture(event.pointerId);
+        elements.gestureLayer.style.cursor = "grabbing";
+      });
+
+      elements.gestureLayer.addEventListener("pointermove", event => {
+        if (!dragging || event.pointerId !== pointerId) return;
+        state.panX += event.clientX - lastX;
+        state.panY += event.clientY - lastY;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        applyViewTransform();
+      });
+
+      const endDrag = event => {
+        if (event.pointerId !== pointerId) return;
+        dragging = false;
+        pointerId = null;
+        elements.gestureLayer.style.cursor = "grab";
+      };
+      elements.gestureLayer.addEventListener("pointerup", endDrag);
+      elements.gestureLayer.addEventListener("pointercancel", endDrag);
+
+      elements.previewViewport.addEventListener("keydown", event => {
+        if (!state.lastGoodRender || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const amount = event.shiftKey ? 60 : 20;
+        if (event.key === "ArrowLeft") state.panX -= amount;
+        if (event.key === "ArrowRight") state.panX += amount;
+        if (event.key === "ArrowUp") state.panY -= amount;
+        if (event.key === "ArrowDown") state.panY += amount;
+        applyViewTransform();
+      });
+
+      new ResizeObserver(() => {
+        if (state.lastGoodRender) fitView();
+      }).observe(elements.previewViewport);
+    }
+
+    /* -------------------------------------------------------------------------
+       LIGHTWEIGHT DEVELOPMENT SELF-TESTS
+
+       No external test framework is required. These assertions verify invariants
+       that are easy to accidentally break while adapting the template.
+       ------------------------------------------------------------------------- */
+    function runSelfTests() {
+      const failures = [];
+      const check = (condition, message) => {
+        console.assert(condition, message);
+        if (!condition) failures.push(message);
+      };
+
+      check(elements.downloadSourceButton.disabled === false,
+        "Raw source download must always be enabled.");
+      check(elements.previewFrame.hasAttribute("sandbox"),
+        "Preview iframe must remain sandboxed.");
+      check(EXAMPLES.every(example => example.source.endsWith("\n")),
+        "Every example must end with a newline.");
+      check(Object.keys(TRANSLATIONS).length === Object.keys(LANGUAGE_META).length,
+        "Translation and language metadata counts must match.");
+      check(Object.keys(TRANSLATIONS).every(code => LANGUAGE_META[code]),
+        "Every translation must have language metadata.");
+      check(sanitizeFilename('a<b>:c?.txt') === 'abc.txt',
+        "Filename sanitization should remove invalid filesystem characters.");
+
+      const testRender = { width: 600, height: 400 };
+      const at100 = calculateBitmapDimensions(testRender, 1);
+      const at200 = calculateBitmapDimensions(testRender, 2);
+      check(at100.width === 1200 && at100.height === 800,
+        "100% bitmap export should honor the configured 2× base pixel density.");
+      check(at200.width === 2400 && at200.height === 1600,
+        "200% bitmap export should double the 100% bitmap dimensions.");
+
+      const malicious = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><scr' + 'ipt>alert(1)</scr' + 'ipt><a href="https://example.com"><rect width="10" height="10" onclick="bad()"/></a></svg>';
+      const sanitized = sanitizeRenderedSvg(malicious);
+      check(!/<script/i.test(sanitized) && !/onclick=/i.test(sanitized) && !sanitized.includes("https://example.com"),
+        "SVG sanitizer should strip scripts, event handlers, and external links.");
+
+      if (failures.length) {
+        console.error("Template self-tests failed:", failures);
+      } else {
+        console.info("Generic renderer template self-tests passed.");
+      }
+      return { passed: failures.length === 0, failures };
+    }
+
+    // Expose only a test entry point for engineers/AI debugging; no application
+    // state is persisted in browser storage.
+    window.__GENERIC_RENDER_TEMPLATE_RUN_TESTS__ = runSelfTests;
+
+    /* -------------------------------------------------------------------------
+       INITIALIZATION
+       ------------------------------------------------------------------------- */
+    async function initialize() {
+      applyAppMetadata();
+      populateLanguages();
+      populateExamples();
+      installEvents();
+
+      elements.exportScaleInput.value = `${APP.bitmap.defaultExportScalePercent}%`;
+      clearRender();
+
+      // Renderer-specific UI is allowed only in the dedicated slots.
+      await RENDERER.initialize?.(rendererContext);
+      await RENDERER.installControls?.(elements.rendererControls, rendererContext);
+      await RENDERER.installExports?.(elements.rendererExports, rendererContext);
+
+      // The development image is injected through the exact same renderer pipeline
+      // a real renderer uses; there is no special preview-only shortcut.
+      if (APP.development.showTemplateTestImage) {
+        await renderSource();
+      }
+
+      if (APP.development.runSelfTests) {
+        runSelfTests();
+      }
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
